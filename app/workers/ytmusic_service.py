@@ -56,8 +56,10 @@ class YTMusicService(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._ytm   = None          # ytmusicapi.YTMusic instance (set after auth)
-        self._pool  = QThreadPool.globalInstance()
+        self._ytm: Any = None          # ytmusicapi.YTMusic instance (set after auth)
+        pool = QThreadPool.globalInstance()
+        assert pool is not None
+        self._pool: QThreadPool = pool
         self._pool.setMaxThreadCount(4)
 
     # ------------------------------------------------------------------

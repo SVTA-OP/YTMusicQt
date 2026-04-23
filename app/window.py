@@ -244,7 +244,7 @@ class MainWindow(QMainWindow):
     def _do_search(self, query: str, filter_type: str):
         self._search_page.show_loading(True)
         self._ytm.search(query, filter=filter_type)
-        self._status.showMessage(f"Searching for "{query}"…")
+        self._status.showMessage(f'Searching for "{query}"…')
 
     # ------------------------------------------------------------------
     # YTMusic result handler (dispatch by task_id)

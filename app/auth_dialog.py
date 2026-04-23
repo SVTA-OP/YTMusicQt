@@ -132,8 +132,8 @@ class AuthDialog(QDialog):
             QMessageBox.warning(self, "Empty", "Please paste your request headers.")
             return
         try:
-            from ytmusicapi import YTMusic
-            YTMusic.setup(filepath=self.auth_path, headers_raw=raw)
+            from ytmusicapi import setup
+            setup(filepath=self.auth_path, headers_raw=raw)
             self.result_path = self.auth_path
             self.accept()
         except Exception as exc:

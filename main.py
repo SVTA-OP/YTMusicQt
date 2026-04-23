@@ -26,7 +26,7 @@ def main():
     app.setStyle("Fusion")  # Fusion adapts to system palette well
 
     # Enable high DPI
-    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    # app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
 
     window = MainWindow()
     window.show()

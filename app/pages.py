@@ -71,14 +71,19 @@ class BasePage(QWidget):
 
     def _show_track_context(self, track: Track, pos):
         menu = QMenu(self)
-        menu.addAction("Play").triggered.connect(
-            lambda: self.track_play_requested.emit(track, [track])
-        )
+        play_action = menu.addAction("Play")
+        if play_action is not None:
+            play_action.triggered.connect(
+                lambda: self.track_play_requested.emit(track, [track])
+            )
+
         menu.addAction("Add to queue")
         menu.addSeparator()
-        menu.addAction("Copy video ID").triggered.connect(
-            lambda: __import__("PyQt6.QtWidgets", fromlist=["QApplication"]).QApplication.clipboard().setText(track.video_id)
-        )
+        copy_action = menu.addAction("Copy video ID")
+        if copy_action is not None:
+            copy_action.triggered.connect(
+                lambda: __import__("PyQt6.QtWidgets", fromlist=["QApplication"]).QApplication.clipboard().setText(track.video_id)
+            )
         menu.exec(pos)
 
 
@@ -119,8 +124,9 @@ class HomePage(BasePage):
         # clear
         while layout.count() > 1:
             item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.deleteLater()
 
         for section in sections[:6]:
             title_lbl = _section_header(section.get("title", ""))

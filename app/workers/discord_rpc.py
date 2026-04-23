@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSlot
+
+if TYPE_CHECKING:
+    from pypresence.presence import Presence
 
 log = logging.getLogger(__name__)
 
@@ -24,8 +27,8 @@ class DiscordRPCService(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._rpc:     object = None
-        self._enabled: bool   = False
+        self._rpc: Optional["Presence"] = None
+        self._enabled: bool                = False
         self._retry_timer = QTimer(self)
         self._retry_timer.setSingleShot(False)
         self._retry_timer.setInterval(30_000)   # retry every 30 s
@@ -39,7 +42,7 @@ class DiscordRPCService(QObject):
         if self._enabled:
             return
         try:
-            from pypresence import Presence
+            from pypresence.presence import Presence
             rpc = Presence(APP_ID)
             rpc.connect()
             self._rpc     = rpc

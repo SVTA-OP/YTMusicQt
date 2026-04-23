@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from PyQt6.QtCore import (
     QObject, QRunnable, QThreadPool, QTimer,
@@ -45,7 +45,7 @@ class _ExtractTask(QRunnable):
     def run(self):
         try:
             import yt_dlp
-            ydl_opts = {
+            ydl_opts: Any = {
                 "format": "bestaudio[ext=webm]/bestaudio/best",
                 "quiet": True,
                 "no_warnings": True,
@@ -55,7 +55,12 @@ class _ExtractTask(QRunnable):
             url = f"https://music.youtube.com/watch?v={self.video_id}"
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                stream_url = info.get("url") or info["formats"][-1]["url"]
+            stream_url = info.get("url")
+            if not stream_url:
+                formats = info.get("formats") or []
+                if not formats or not formats[-1].get("url"):
+                    raise RuntimeError("No stream URL found in yt-dlp metadata")
+                stream_url = formats[-1]["url"]
             self.signals.done.emit(self.video_id, stream_url)
         except Exception as exc:
             log.exception("yt-dlp extraction failed for %s", self.video_id)
@@ -91,8 +96,10 @@ class PlayerService(QObject):
         self._player.setAudioOutput(self._audio_output)
         self._audio_output.setVolume(0.7)
 
-        self._pool         = QThreadPool.globalInstance()
-        self._queue:  list[Track]    = []
+        pool = QThreadPool.globalInstance()
+        assert pool is not None
+        self._pool: QThreadPool = pool
+        self._queue: list[Track] = []
         self._queue_index: int       = -1
         self._current: Optional[Track] = None
         self._prefetch_pending: set[str] = set()
@@ -102,8 +109,8 @@ class PlayerService(QObject):
 
         # Wire Qt media player signals
         self._player.playbackStateChanged.connect(self._on_playback_state)
-        self._player.positionChanged.connect(self.position_changed)
-        self._player.durationChanged.connect(self.duration_changed)
+        self._player.positionChanged.connect(lambda p: self.position_changed.emit(p))
+        self._player.durationChanged.connect(lambda d: self.duration_changed.emit(d))
         self._player.mediaStatusChanged.connect(self._on_media_status)
         self._player.errorOccurred.connect(self._on_error)
 
