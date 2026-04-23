@@ -116,8 +116,8 @@ class MainWindow(QMainWindow):
         ]:
             idx = self._pages.addWidget(widget)
             self._page_map[page_id] = (idx, widget)
-            self._page_map["library"] = (self._pages.addWidget(self._library_page), self._library_page)
-            self._page_map["now_playing"] = (self._pages.addWidget(self._now_playing_page), self._now_playing_page)
+        self._page_map["library"] = (self._pages.addWidget(self._library_page), self._library_page)
+        self._page_map["now_playing"] = (self._pages.addWidget(self._now_playing_page), self._now_playing_page)
 
         body.addWidget(self._sidebar)
         body.addWidget(line)
@@ -183,7 +183,8 @@ class MainWindow(QMainWindow):
         auth_file = os.path.join(CONFIG_DIR, "browser.json")
         oauth_file = os.path.join(CONFIG_DIR, "oauth.json")
 
-        for f in (auth_file, oauth_file):
+        # CHANGE: Check oauth_file FIRST, then auth_file
+        for f in (oauth_file, auth_file):
             if os.path.exists(f):
                 if self._ytm.setup_authenticated(f):
                     self._on_authenticated()
@@ -266,6 +267,9 @@ class MainWindow(QMainWindow):
         if task_id == "home":
             self._home_page.show_loading(False)
             self._home_page.set_home_data(data or [])
+            # --- NEW: Fetch thumbnails for the home page sections! ---
+            for section in (data or []):
+                self._fetch_thumbnails_for(section.get("contents", []), "home")
 
         elif task_id == "history":
             self._history_page.show_loading(False)
@@ -334,17 +338,22 @@ class MainWindow(QMainWindow):
         seen = set()
         count = 0
         for raw in raw_list[:30]:
-            vid = raw.get("videoId", "")
-            # ytmusicapi uses 'thumbnails' for most endpoints but 'thumbnail'
-            # (singular list) for history items — handle both.
+            # --- NEW SAFETY CHECK ---
+            if not raw:
+                continue
+
+            # Look for playlistId and browseId too
+            vid = raw.get("videoId") or raw.get("playlistId") or raw.get("browseId", "")
+            
             thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
             if not vid or not thumbs or vid in seen:
                 continue
+            
             seen.add(vid)
             # Use the LAST entry — it is always the highest resolution.
             url = thumbs[-1].get("url", "")
             if url:
-                delay = count * 80   # 80ms stagger
+                delay = count * 10   # 10ms stagger
                 QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
                 count += 1
 
@@ -428,6 +437,7 @@ class MainWindow(QMainWindow):
             is_playing=self._player.is_playing(),
             position_sec=self._player.position() // 1000,
             duration_sec=cur.duration_sec,
+            thumbnail_url=cur.thumbnail_url, # <-- Pass the live URL
         )
 
     # ------------------------------------------------------------------

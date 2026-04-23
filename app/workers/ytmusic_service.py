@@ -60,7 +60,7 @@ class YTMusicService(QObject):
         pool = QThreadPool.globalInstance()
         assert pool is not None
         self._pool: QThreadPool = pool
-        self._pool.setMaxThreadCount(4)
+        self._pool.setMaxThreadCount(20) # Increased from 4 to 20
 
     # ------------------------------------------------------------------
     # Auth
@@ -182,7 +182,7 @@ class YTMusicService(QObject):
             return self._ytm.get_playlist(playlist_id, limit=limit)
             
         self._dispatch(f"playlist:{playlist_id}", _run)
-        
+
     def create_playlist(self, title: str, description: str = "", privacy: str = "PRIVATE"):
         def _run():
             return self._ytm.create_playlist(title, description, privacy)

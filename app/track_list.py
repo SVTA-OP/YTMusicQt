@@ -7,19 +7,17 @@ from __future__ import annotations
 from typing import Optional
 from PyQt6.QtCore import (
     Qt, QAbstractListModel, QModelIndex, QVariant,
-    pyqtSignal, QSize,
+    pyqtSignal, QSize, QRect, QRectF
 )
 from PyQt6.QtWidgets import (
     QListView, QWidget, QStyledItemDelegate, QStyleOptionViewItem,
     QApplication, QMenu, QAbstractItemView, QStyle
 )
 from PyQt6.QtGui import (
-    QPainter, QPixmap, QIcon, QColor, QFont, QFontMetrics, QPalette,
+    QPainter, QPixmap, QIcon, QColor, QFont, QFontMetrics, QPalette, QPainterPath
 )
 
 from app.workers.player_service import Track
-from PyQt6.QtCore import QRect, QRectF
-from PyQt6.QtGui import QPainterPath
 
 
 class TrackModel(QAbstractListModel):
@@ -107,7 +105,7 @@ class TrackDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
         painter.save()
         palette = option.palette
-        is_selected = option.state & QStyle.StateFlag.State_Selected  # QStyle.StateFlag.State_Selected
+        is_selected = option.state & QStyle.StateFlag.State_Selected
         is_playing  = index.data(Qt.ItemDataRole.UserRole + 1)
         track: Optional[Track] = index.data(Qt.ItemDataRole.UserRole)
 
@@ -205,12 +203,8 @@ def _fmt_duration(secs: int) -> str:
 class TrackListView(QListView):
     """
     List view showing tracks with fast delegate-based rendering.
-    Emits:
-      track_activated(Track)      — double-click / Enter
-      context_menu_requested(Track, QPoint)
     """
-
-    track_activated        = pyqtSignal(object)          # Track
+    track_activated        = pyqtSignal(object, int)         # Track, index
     context_menu_requested = pyqtSignal(object, object)  # Track, QPoint
 
     def __init__(self, parent=None):
@@ -223,7 +217,10 @@ class TrackListView(QListView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
+        
+        # Connect both single click and double click
         self.activated.connect(self._on_activated)
+        self.clicked.connect(self._on_activated)
 
     @property
     def track_model(self) -> TrackModel:
@@ -241,7 +238,7 @@ class TrackListView(QListView):
     def _on_activated(self, index: QModelIndex):
         track = self._model.track_at(index.row())
         if track:
-            self.track_activated.emit(track)
+            self.track_activated.emit(track, index.row())
 
     def _on_context_menu(self, pos):
         index = self.indexAt(pos)
@@ -251,7 +248,6 @@ class TrackListView(QListView):
         if track:
             self.context_menu_requested.emit(track, self.mapToGlobal(pos))
 
-# --- Add this to the bottom of app/track_list.py ---
 
 CARD_WIDTH  = 160
 CARD_HEIGHT = 220
@@ -339,7 +335,7 @@ class CardDelegate(QStyledItemDelegate):
 class HorizontalTrackListView(QListView):
     """A horizontal scrolling shelf for cards."""
     
-    track_activated        = pyqtSignal(object)
+    track_activated        = pyqtSignal(object, int)
     context_menu_requested = pyqtSignal(object, object)
 
     def __init__(self, parent=None):
@@ -359,7 +355,10 @@ class HorizontalTrackListView(QListView):
         
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
+        
+        # Connect both single click and double click
         self.activated.connect(self._on_activated)
+        self.clicked.connect(self._on_activated)
 
     @property
     def track_model(self) -> TrackModel:
@@ -374,7 +373,7 @@ class HorizontalTrackListView(QListView):
     def _on_activated(self, index: QModelIndex):
         track = self._model.track_at(index.row())
         if track:
-            self.track_activated.emit(track)
+            self.track_activated.emit(track, index.row())
 
     def _on_context_menu(self, pos):
         index = self.indexAt(pos)

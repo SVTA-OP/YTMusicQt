@@ -45,7 +45,7 @@ def _loading_bar() -> QProgressBar:
 class BasePage(QWidget):
     """All pages share: track_play_requested signal, a loading bar, a body layout."""
 
-    track_play_requested = pyqtSignal(object, list)  # Track, all tracks
+    track_play_requested = pyqtSignal(object, list, int)  # Track, all tracks, index
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -64,8 +64,9 @@ class BasePage(QWidget):
             self._loading_bar.hide()
 
     def _wire_list(self, lst: TrackListView):
+        # Capture 'idx' and emit it
         lst.track_activated.connect(
-            lambda t: self.track_play_requested.emit(t, lst.track_model.all_tracks())
+            lambda t, idx: self.track_play_requested.emit(t, lst.track_model.all_tracks(), idx)
         )
         lst.context_menu_requested.connect(self._show_track_context)
 
@@ -73,8 +74,9 @@ class BasePage(QWidget):
         menu = QMenu(self)
         play_action = menu.addAction("Play")
         if play_action is not None:
+            # For context menu play, we just pass index 0
             play_action.triggered.connect(
-                lambda: self.track_play_requested.emit(track, [track])
+                lambda: self.track_play_requested.emit(track, [track], 0)
             )
 
         menu.addAction("Add to queue")
@@ -148,10 +150,11 @@ class HomePage(BasePage):
             
             lst.set_tracks(tracks)
             
-            # Wire up play actions and thumbnails
+            # Wire up play actions and thumbnails (FIXED MISSING PARENTHESIS HERE)
             lst.track_activated.connect(
-                lambda t, l=lst: self.track_play_requested.emit(t, l.track_model.all_tracks())
+                lambda t, idx, l=lst: self.track_play_requested.emit(t, l.track_model.all_tracks(), idx)
             )
+                
             lst.context_menu_requested.connect(self._show_track_context)
             
             # Save a reference so window.py can find it to set thumbnails
@@ -353,40 +356,8 @@ class QueuePage(BasePage):
 
 
 # ---------------------------------------------------------------------------
-# Raw → Track converter
+# Now Playing & Library Pages
 # ---------------------------------------------------------------------------
-
-def _raw_to_track(raw: dict) -> Track | None:
-    """Enhanced converter to handle multiple YouTube Music ID formats."""
-    if not raw:
-        return None
-
-    # Check for standard videoId or choiceId used in Quick Picks
-    video_id = raw.get("videoId") or raw.get("videoID") or raw.get("choiceId", "")
-    
-    # Fallback for nested navigation endpoints
-    if not video_id and "navigationEndpoint" in raw:
-        video_id = raw["navigationEndpoint"].get("watchEndpoint", {}).get("videoId", "")
-
-    if not video_id:
-        return None
-
-    title = raw.get("title", "Unknown")
-    artists = raw.get("artists") or []
-    artist = ", ".join(a.get("name", "") for a in artists) if artists else raw.get("artist", "Unknown Artist")
-    
-    # Existing thumbnail and duration logic...
-    thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
-    thumb_url = thumbs[-1].get("url", "") if thumbs else ""
-
-    return Track(
-        video_id=video_id,
-        title=title,
-        artist=artist,
-        thumbnail_url=thumb_url
-    )
-
-# Add to app/pages.py
 
 class NowPlayingPage(BasePage):
     """Dashboard showing large art and the current queue."""
@@ -424,6 +395,7 @@ class NowPlayingPage(BasePage):
         if px.loadFromData(data):
             self.art_label.setPixmap(px)
 
+
 class LibraryPage(BasePage):
     """Centralized view for your playlists."""
     def __init__(self, parent=None):
@@ -437,3 +409,38 @@ class LibraryPage(BasePage):
         # Convert playlists to track-formatted items for the list
         items = [Track(video_id=p['playlistId'], title=p['title'], artist="Playlist") for p in playlists]
         self._list.set_tracks(items)
+
+
+# ---------------------------------------------------------------------------
+# Raw → Track converter
+# ---------------------------------------------------------------------------
+
+def _raw_to_track(raw: dict) -> Track | None:
+    """Enhanced converter to handle multiple YouTube Music ID formats."""
+    if not raw:
+        return None
+
+    video_id = raw.get("videoId") or raw.get("videoID") or raw.get("choiceId", "")
+    if not video_id and "navigationEndpoint" in raw:
+        video_id = raw["navigationEndpoint"].get("watchEndpoint", {}).get("videoId", "")
+
+    # --- NEW: Fallback for Playlists and Albums on the Home Page ---
+    if not video_id:
+        video_id = raw.get("playlistId") or raw.get("browseId", "")
+
+    if not video_id:
+        return None
+
+    title = raw.get("title", "Unknown")
+    artists = raw.get("artists") or []
+    artist = ", ".join(a.get("name", "") for a in artists) if artists else raw.get("artist", "Unknown Artist")
+    
+    thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
+    thumb_url = thumbs[-1].get("url", "") if thumbs else ""
+
+    return Track(
+        video_id=video_id,
+        title=title,
+        artist=artist,
+        thumbnail_url=thumb_url
+    )

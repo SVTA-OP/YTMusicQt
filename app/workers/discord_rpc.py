@@ -59,6 +59,7 @@ class DiscordRPCService(QObject):
         is_playing: bool,
         position_sec: int = 0,
         duration_sec: int = 0,
+        thumbnail_url: str = "",  # <-- Add this parameter
     ):
         if not self._enabled or self._rpc is None:
             return
@@ -66,7 +67,8 @@ class DiscordRPCService(QObject):
         update_data: dict = {
             "details": title[:128] if title else "Unknown",
             "state":   f"by {artist[:128]}" if artist else "Unknown artist",
-            "large_image": "ytmusic_logo",
+            # Use the live thumbnail, fallback to "ytmusic_logo" if none exists
+            "large_image": thumbnail_url if thumbnail_url else "ytmusic_logo", 
             "large_text":  "YouTube Music Desktop",
             "small_image": "playing" if is_playing else "paused",
             "small_text":  "Playing" if is_playing else "Paused",
