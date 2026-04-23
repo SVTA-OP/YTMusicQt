@@ -283,5 +283,6 @@ class PlayerService(QObject):
             self.next()
 
     def _on_error(self, error, error_string: str):
+        log.error("Media player error (%s): %s", error, error_string)
         self.error.emit(error_string)
         self.state_changed.emit("error")

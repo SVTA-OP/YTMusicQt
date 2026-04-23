@@ -23,7 +23,8 @@ from app.sidebar import Sidebar
 from app.player_bar import PlayerBar
 from app.pages import (
     HomePage, SearchPage, HistoryPage, LikedPage,
-    PlaylistPage, QueuePage, _raw_to_track,
+    PlaylistPage, QueuePage, NowPlayingPage, LibraryPage,
+    _raw_to_track,
 )
 from app.workers.ytmusic_service import YTMusicService
 from app.workers.player_service import PlayerService, Track
@@ -86,6 +87,8 @@ class MainWindow(QMainWindow):
         self._sidebar = Sidebar()
         self._sidebar.page_requested.connect(self._go_to_page)
         self._sidebar.playlist_requested.connect(self._load_playlist)
+        self._library_page = LibraryPage()
+        self._now_playing_page = NowPlayingPage()
 
         # Vertical divider
         line = QFrame()
@@ -113,6 +116,8 @@ class MainWindow(QMainWindow):
         ]:
             idx = self._pages.addWidget(widget)
             self._page_map[page_id] = (idx, widget)
+            self._page_map["library"] = (self._pages.addWidget(self._library_page), self._library_page)
+            self._page_map["now_playing"] = (self._pages.addWidget(self._now_playing_page), self._now_playing_page)
 
         body.addWidget(self._sidebar)
         body.addWidget(line)
@@ -141,7 +146,7 @@ class MainWindow(QMainWindow):
         # Player events
         self._player.track_changed.connect(self._on_track_changed)
         self._player.state_changed.connect(self._on_player_state)
-        self._player.error.connect(lambda msg: self._status.showMessage(f"Player: {msg}", 6000))
+        self._player.error.connect(self._on_player_error)
         self._player.queue_changed.connect(self._refresh_queue_page)
 
         # Page signals → service calls
@@ -192,6 +197,7 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Auth Failed", "Could not authenticate. Please try again.")
         else:
+            log.warning("Authentication not completed; API features will be unavailable")
             self._status.showMessage("Not authenticated — some features unavailable")
 
     def _on_authenticated(self):
@@ -274,6 +280,7 @@ class MainWindow(QMainWindow):
 
         elif task_id == "library_playlists":
             self._sidebar.set_playlists(data or [])
+            self._library_page.set_playlists(data or [])
 
         elif task_id.startswith("playlist:"):
             self._playlist_page.show_loading(False)
@@ -290,23 +297,24 @@ class MainWindow(QMainWindow):
         elif task_id.startswith("thumb:"):
             video_id = task_id[6:]
             data_bytes: bytes = data
-            # Forward to all pages that might show this track
+            
+            # Forward to static pages
             self._history_page.set_thumbnail(video_id, data_bytes)
             self._liked_page.set_thumbnail(video_id, data_bytes)
             self._search_page.set_thumbnail(video_id, data_bytes)
             self._playlist_page.set_thumbnail(video_id, data_bytes)
             self._queue_page._list.set_thumbnail(video_id, data_bytes)
+            self._now_playing_page.set_large_thumbnail(data_bytes)
+            
+            # --- NEW: Forward to dynamic HomePage horizontal lists ---
+            from app.track_list import HorizontalTrackListView
+            for child in self._home_page._body.findChildren(HorizontalTrackListView):
+                child.set_thumbnail(video_id, data_bytes)
+
             # Player bar if this is current track
             cur = self._player.current_track
             if cur and cur.video_id == video_id:
                 self._player_bar.set_thumbnail(data_bytes)
-
-        elif task_id.startswith("watch:"):
-            # Up-next queue
-            tracks_raw = (data or {}).get("tracks", [])
-            tracks = [t for raw in tracks_raw if (t := _raw_to_track(raw))]
-            if tracks:
-                self._player.append_to_queue(tracks)
 
     @pyqtSlot(str, str)
     def _on_ytm_error(self, task_id: str, message: str):
@@ -336,7 +344,7 @@ class MainWindow(QMainWindow):
             # Use the LAST entry — it is always the highest resolution.
             url = thumbs[-1].get("url", "")
             if url:
-                delay = count * 40   # 40ms stagger
+                delay = count * 80   # 80ms stagger
                 QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
                 count += 1
 
@@ -364,23 +372,41 @@ class MainWindow(QMainWindow):
 
     def _on_track_changed(self, track: Track):
         self.setWindowTitle(f"{track.title} — {track.artist} | YTMusic Desktop")
-        # Fetch thumbnail for player bar
+        # Update Now Playing Page
+        self._now_playing_page.set_now_playing(track, self._player.get_queue())
+        # Automatically switch view if not already on search/history
+        if self._pages.currentWidget() not in (self._search_page, self._history_page):
+            self._go_to_page("now_playing")
+
+        # Fetch thumbnail for player bar and now playing art
         if track.thumbnail_url:
             self._ytm.download_thumbnail(track.thumbnail_url, track.video_id)
-        # Load up-next queue
-        self._ytm.get_watch_playlist(track.video_id)
+
+        # Load up-next queue only if authenticated
+        if self._ytm.is_authenticated():
+            self._ytm.get_watch_playlist(track.video_id)
+            # Sync play to YTMusic history (non-blocking, best-effort)
+            self._ytm.add_history_item(track.video_id)
+        else:
+            log.warning(
+                "Skipping watch playlist sync and history update because YTMusic is not authenticated"
+            )
+
         # Update playing indicators
         for page in (self._history_page, self._liked_page,
                      self._playlist_page, self._queue_page):
             page.set_playing(track.video_id)
-        # Sync play to YTMusic history (non-blocking, best-effort)
-        if self._ytm.is_authenticated():
-            self._ytm.add_history_item(track.video_id)
+        self._now_playing_page.set_playing(track.video_id)
         # Invalidate cached history so next visit fetches fresh data
         self._history_page._list.track_model.set_tracks([])
 
     def _on_player_state(self, state: str):
+        log.info("Player state changed: %s", state)
         self._update_discord_rpc()
+
+    def _on_player_error(self, message: str):
+        log.error("Player error: %s", message)
+        self._status.showMessage(f"Player: {message}", 6000)
 
     def _refresh_queue_page(self):
         q   = self._player.get_queue()

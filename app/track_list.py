@@ -18,6 +18,8 @@ from PyQt6.QtGui import (
 )
 
 from app.workers.player_service import Track
+from PyQt6.QtCore import QRect, QRectF
+from PyQt6.QtGui import QPainterPath
 
 
 class TrackModel(QAbstractListModel):
@@ -91,9 +93,9 @@ class TrackModel(QAbstractListModel):
         return None
 
 
-ITEM_HEIGHT = 60
-THUMB_SIZE  = 44
-PAD         = 8
+ITEM_HEIGHT = 80
+THUMB_SIZE  = 64
+PAD         = 10
 
 
 class TrackDelegate(QStyledItemDelegate):
@@ -146,7 +148,7 @@ class TrackDelegate(QStyledItemDelegate):
 
         # Title
         title_font = QFont(option.font)
-        title_font.setPointSize(title_font.pointSize())
+        title_font.setPointSize(title_font.pointSize() + 2) # Larger font
         if is_playing:
             title_font.setBold(True)
         painter.setFont(title_font)
@@ -248,3 +250,135 @@ class TrackListView(QListView):
         track = self._model.track_at(index.row())
         if track:
             self.context_menu_requested.emit(track, self.mapToGlobal(pos))
+
+# --- Add this to the bottom of app/track_list.py ---
+
+CARD_WIDTH  = 160
+CARD_HEIGHT = 220
+IMAGE_SIZE  = 140
+CARD_PAD    = 10
+
+class CardDelegate(QStyledItemDelegate):
+    """Paints each track as a Spotify-style card: Large Square Image -> Title -> Artist"""
+
+    def sizeHint(self, option, index):
+        return QSize(CARD_WIDTH, CARD_HEIGHT)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        palette = option.palette
+        track: Optional[Track] = index.data(Qt.ItemDataRole.UserRole)
+
+        # Subtle hover background
+        if option.state & QStyle.StateFlag.State_MouseOver:
+            hover_bg = palette.midlight().color()
+            hover_bg.setAlpha(60)
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(option.rect), 8, 8)
+            painter.fillPath(path, hover_bg)
+
+        # Calculate Image Box
+        img_rect = QRect(
+            option.rect.x() + CARD_PAD,
+            option.rect.y() + CARD_PAD,
+            IMAGE_SIZE, IMAGE_SIZE
+        )
+
+        # Draw Thumbnail with Rounded Corners
+        thumb: Optional[QPixmap] = index.data(Qt.ItemDataRole.DecorationRole)
+        if thumb and not thumb.isNull():
+            scaled = thumb.scaled(
+                IMAGE_SIZE, IMAGE_SIZE, 
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(img_rect), 8, 8)
+            painter.setClipPath(path)
+            painter.drawPixmap(img_rect.topLeft(), scaled)
+            painter.setClipping(False)
+        else:
+            # Fallback empty box
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(img_rect), 8, 8)
+            painter.fillPath(path, palette.mid().color())
+
+        # Text Layout
+        text_x = option.rect.x() + CARD_PAD
+        text_w = IMAGE_SIZE
+        title_y = img_rect.bottom() + 20
+
+        # Draw Title (Bold)
+        title_font = QFont(option.font)
+        title_font.setPointSize(title_font.pointSize() + 1)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.setPen(palette.text().color())
+        
+        title_fm = QFontMetrics(title_font)
+        title_str = title_fm.elidedText(track.title if track else "Unknown", Qt.TextElideMode.ElideRight, text_w)
+        painter.drawText(text_x, title_y, title_str)
+
+        # Draw Artist (Dimmed)
+        artist_font = QFont(option.font)
+        artist_font.setPointSize(max(8, artist_font.pointSize() - 1))
+        painter.setFont(artist_font)
+        
+        dim_color = palette.text().color()
+        dim_color.setAlpha(160)
+        painter.setPen(dim_color)
+        
+        artist_fm = QFontMetrics(artist_font)
+        artist_str = artist_fm.elidedText(track.artist if track else "", Qt.TextElideMode.ElideRight, text_w)
+        painter.drawText(text_x, title_y + artist_fm.height() + 4, artist_str)
+
+        painter.restore()
+
+
+class HorizontalTrackListView(QListView):
+    """A horizontal scrolling shelf for cards."""
+    
+    track_activated        = pyqtSignal(object)
+    context_menu_requested = pyqtSignal(object, object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._model = TrackModel(self)
+        self.setModel(self._model)
+        self.setItemDelegate(CardDelegate(self))
+        
+        # Configure for horizontal layout
+        self.setFlow(QListView.Flow.LeftToRight)
+        self.setWrapping(False)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFixedHeight(CARD_HEIGHT + 10)
+        self.setSpacing(0)
+        self.setStyleSheet("QListView { border: none; background: transparent; outline: none; }")
+        
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
+        self.activated.connect(self._on_activated)
+
+    @property
+    def track_model(self) -> TrackModel:
+        return self._model
+
+    def set_tracks(self, tracks: list[Track]):
+        self._model.set_tracks(tracks)
+
+    def set_thumbnail(self, video_id: str, data: bytes):
+        self._model.set_thumbnail(video_id, data)
+
+    def _on_activated(self, index: QModelIndex):
+        track = self._model.track_at(index.row())
+        if track:
+            self.track_activated.emit(track)
+
+    def _on_context_menu(self, pos):
+        index = self.indexAt(pos)
+        if index.isValid():
+            track = self._model.track_at(index.row())
+            if track:
+                self.context_menu_requested.emit(track, self.mapToGlobal(pos))

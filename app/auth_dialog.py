@@ -4,6 +4,7 @@ Supports both headers-auth and OAuth flows.
 """
 from __future__ import annotations
 
+import logging
 import os
 import webbrowser
 
@@ -137,6 +138,7 @@ class AuthDialog(QDialog):
             self.result_path = self.auth_path
             self.accept()
         except Exception as exc:
+            logging.exception("Failed to save auth headers")
             QMessageBox.critical(self, "Error", f"Failed to parse headers:\n{exc}")
 
     def _pick_file(self):

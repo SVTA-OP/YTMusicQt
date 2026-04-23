@@ -49,8 +49,8 @@ class DiscordRPCService(QObject):
             self._enabled = True
             self._retry_timer.stop()
             log.info("Discord RPC connected")
-        except Exception:
-            pass   # Discord not running or pypresence not installed — silent
+        except Exception as exc:
+            log.warning("Discord RPC connect failed: %s", exc)
 
     def update(
         self,
@@ -98,8 +98,8 @@ class DiscordRPCService(QObject):
             return
         try:
             self._rpc.clear()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("Discord RPC clear failed: %s", exc)
 
     def close(self):
         self._retry_timer.stop()
@@ -107,8 +107,8 @@ class DiscordRPCService(QObject):
         if self._rpc:
             try:
                 self._rpc.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("Discord RPC close failed: %s", exc)
         self._enabled = False
         self._rpc     = None
 

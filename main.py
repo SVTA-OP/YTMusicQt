@@ -4,6 +4,7 @@ YTMusic Desktop Client - Main Entry Point
 """
 import sys
 import os
+import logging
 
 # Use the KDE platform theme so PyQt6 picks up Breeze colours, fonts,
 # icon themes, and window decorations automatically on Plasma 6.
@@ -42,6 +43,13 @@ def main():
     window.show()
 
     sys.exit(app.exec())
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    main()
 
 
 if __name__ == "__main__":

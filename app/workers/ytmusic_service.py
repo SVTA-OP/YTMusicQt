@@ -95,6 +95,11 @@ class YTMusicService(QObject):
     # ------------------------------------------------------------------
 
     def _dispatch(self, task_id: str, fn, *args, **kwargs):
+        if self._ytm is None:
+            message = "YTMusic service is not authenticated"
+            log.warning("Cannot dispatch %s: %s", task_id, message)
+            self.error.emit(task_id, message)
+            return
         task = _Task(task_id, fn, *args, **kwargs)
         task.signals.result.connect(self.result)
         task.signals.error.connect(self.error)
@@ -128,13 +133,6 @@ class YTMusicService(QObject):
             return self._ytm.get_history()
         self._dispatch("history", _run)
 
-    def add_history_item(self, video_id: str):
-        """Record a played track in YTMusic history."""
-        def _run():
-            # The ytmusicapi method to add a track to history
-            return self._ytm.add_history_item(video_id)
-        self._dispatch(f"add_history:{video_id}", _run)
-
     def remove_history_items(self, feedback_tokens: list[str]):
         def _run():
             return self._ytm.remove_history_items(feedback_tokens)
@@ -159,6 +157,10 @@ class YTMusicService(QObject):
     # Playlists
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Playlists
+    # ------------------------------------------------------------------
+
     def get_library_playlists(self, limit: int = 25):
         def _run():
             return self._ytm.get_library_playlists(limit=limit)
@@ -166,9 +168,21 @@ class YTMusicService(QObject):
 
     def get_playlist(self, playlist_id: str, limit: int = 100):
         def _run():
+            # YouTube Mixes, Radios, and Podcast feeds start with "RD"
+            if playlist_id.startswith("RD"):
+                res = self._ytm.get_watch_playlist(playlistId=playlist_id, limit=limit)
+                tracks = res.get("tracks", [])
+                return {
+                    "title": res.get("title", "Radio / Podcast Mix"),
+                    "trackCount": len(tracks),
+                    "tracks": tracks
+                }
+            
+            # Standard user-created playlists
             return self._ytm.get_playlist(playlist_id, limit=limit)
+            
         self._dispatch(f"playlist:{playlist_id}", _run)
-
+        
     def create_playlist(self, title: str, description: str = "", privacy: str = "PRIVATE"):
         def _run():
             return self._ytm.create_playlist(title, description, privacy)
@@ -223,3 +237,13 @@ class YTMusicService(QObject):
             with urllib.request.urlopen(url, timeout=6) as resp:
                 return resp.read()
         self._dispatch(f"thumb:{video_id}", _run)
+
+    def add_history_item(self, video_id: str):
+        """Record a played track in YTMusic history."""
+        def _run():
+            try:
+                return self._ytm.add_history_item(video_id)
+            except Exception as e:
+                log.warning("Could not sync history (upstream ytmusicapi issue): %s", e)
+                return None
+        self._dispatch(f"add_history:{video_id}", _run)    

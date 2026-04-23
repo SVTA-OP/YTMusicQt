@@ -87,6 +87,7 @@ class Sidebar(QWidget):
         nav_items = [
             ("home",    "🏠", "Home"),
             ("search",  "🔍", "Search"),
+            ("library", "📚", "Library"), # New Library entry
             ("history", "🕐", "History"),
             ("liked",   "❤", "Liked Songs"),
             ("queue",   "≡", "Queue"),
@@ -136,8 +137,10 @@ class Sidebar(QWidget):
         layout = self._playlist_layout
         while layout.count() > 1:
             item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
 
         for pl in playlists:
             pl_id   = pl.get("playlistId", "")

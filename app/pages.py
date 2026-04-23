@@ -11,9 +11,9 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QComboBox, QFrame, QProgressBar,
     QSizePolicy, QMenu, QToolBar,
 )
-from PyQt6.QtGui import QFont, QAction
+from PyQt6.QtGui import QFont, QAction, QPixmap
 
-from app.track_list import TrackListView, Track
+from app.track_list import HorizontalTrackListView, TrackListView, Track
 
 
 # ---------------------------------------------------------------------------
@@ -23,10 +23,10 @@ from app.track_list import TrackListView, Track
 def _section_header(text: str) -> QLabel:
     lbl = QLabel(text)
     font = QFont()
-    font.setPointSize(font.pointSize() + 2)
+    font.setPointSize(font.pointSize() + 8) # Spotify uses large section headers
     font.setBold(True)
     lbl.setFont(font)
-    lbl.setContentsMargins(0, 8, 0, 4)
+    lbl.setContentsMargins(0, 24, 0, 8)
     return lbl
 
 
@@ -97,6 +97,7 @@ class HomePage(BasePage):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        # Header with Refresh Button
         hdr = QHBoxLayout()
         hdr.addWidget(_section_header("Home"))
         hdr.addStretch()
@@ -106,10 +107,12 @@ class HomePage(BasePage):
         hdr.addWidget(refresh_btn)
         self._root.addLayout(hdr)
 
+        # Scrollable Area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
+        # Body Container
         self._body = QWidget()
         self._body_layout = QVBoxLayout(self._body)
         self._body_layout.setContentsMargins(0, 0, 0, 0)
@@ -121,26 +124,38 @@ class HomePage(BasePage):
 
     def set_home_data(self, sections: list[dict]):
         layout = self._body_layout
-        # clear
+        
+        # Clear existing content
         while layout.count() > 1:
             item = layout.takeAt(0)
             widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.deleteLater()
 
+        # Build Horizontal Shelves
         for section in sections[:6]:
             title_lbl = _section_header(section.get("title", ""))
             layout.insertWidget(layout.count() - 1, title_lbl)
 
-            lst = TrackListView()
+            # --- USE THE NEW HORIZONTAL VIEW HERE ---
+            lst = HorizontalTrackListView() 
+            
             tracks = []
-            for raw in section.get("contents", [])[:10]:
+            for raw in section.get("contents", [])[:15]: # Show a few more items horizontally
                 t = _raw_to_track(raw)
                 if t:
                     tracks.append(t)
+            
             lst.set_tracks(tracks)
-            lst.setMaximumHeight(min(len(tracks), 5) * 60)
-            self._wire_list(lst)
+            
+            # Wire up play actions and thumbnails
+            lst.track_activated.connect(
+                lambda t, l=lst: self.track_play_requested.emit(t, l.track_model.all_tracks())
+            )
+            lst.context_menu_requested.connect(self._show_track_context)
+            
+            # Save a reference so window.py can find it to set thumbnails
+            lst.setParent(self._body)
             layout.insertWidget(layout.count() - 1, lst)
 
 
@@ -342,44 +357,83 @@ class QueuePage(BasePage):
 # ---------------------------------------------------------------------------
 
 def _raw_to_track(raw: dict) -> Track | None:
-    """Convert ytmusicapi result dict to a Track dataclass."""
+    """Enhanced converter to handle multiple YouTube Music ID formats."""
     if not raw:
         return None
 
-    video_id = raw.get("videoId") or raw.get("videoID", "")
+    # Check for standard videoId or choiceId used in Quick Picks
+    video_id = raw.get("videoId") or raw.get("videoID") or raw.get("choiceId", "")
+    
+    # Fallback for nested navigation endpoints
+    if not video_id and "navigationEndpoint" in raw:
+        video_id = raw["navigationEndpoint"].get("watchEndpoint", {}).get("videoId", "")
+
     if not video_id:
         return None
 
-    title   = raw.get("title", "Unknown")
+    title = raw.get("title", "Unknown")
     artists = raw.get("artists") or []
-    artist  = ", ".join(a.get("name", "") for a in artists) if artists else raw.get("artist", "")
-    album_d = raw.get("album") or {}
-    album   = album_d.get("name", "") if isinstance(album_d, dict) else str(album_d)
-
-    duration = raw.get("duration_seconds") or 0
-    if not duration:
-        dur_str = raw.get("duration", "") or ""
-        parts   = dur_str.split(":")
-        try:
-            if len(parts) == 2:
-                duration = int(parts[0]) * 60 + int(parts[1])
-            elif len(parts) == 3:
-                duration = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-        except ValueError:
-            duration = 0
-
-    thumb_url = ""
-    # ytmusicapi uses 'thumbnails' (list) for most endpoints,
-    # but 'thumbnail' (also a list) for history items.
+    artist = ", ".join(a.get("name", "") for a in artists) if artists else raw.get("artist", "Unknown Artist")
+    
+    # Existing thumbnail and duration logic...
     thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
-    if thumbs:
-        thumb_url = thumbs[-1].get("url", "")
+    thumb_url = thumbs[-1].get("url", "") if thumbs else ""
 
     return Track(
         video_id=video_id,
         title=title,
         artist=artist,
-        album=album,
-        duration_sec=duration,
-        thumbnail_url=thumb_url,
+        thumbnail_url=thumb_url
     )
+
+# Add to app/pages.py
+
+class NowPlayingPage(BasePage):
+    """Dashboard showing large art and the current queue."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout() # Horizontal split
+        
+        # Left: Large Thumbnail
+        self.art_label = QLabel()
+        self.art_label.setFixedSize(400, 400)
+        self.art_label.setStyleSheet("background: palette(mid); border-radius: 8px;")
+        self.art_label.setScaledContents(True)
+        layout.addWidget(self.art_label, 1, Qt.AlignmentFlag.AlignCenter)
+
+        # Right: Queue
+        queue_container = QVBoxLayout()
+        queue_container.addWidget(_section_header("Up Next"))
+        self._list = TrackListView()
+        self._wire_list(self._list)
+        queue_container.addWidget(self._list)
+        layout.addLayout(queue_container, 1)
+        self._root.addLayout(layout, 1)
+
+    def set_now_playing(self, track: Track, queue: list[Track]):
+        self._list.set_tracks(queue)
+        self._list.set_playing(track.video_id)
+
+    def set_playing(self, video_id: str):
+        """Update the playing indicator in the queue list."""
+        self._list.set_playing(video_id)
+
+    def set_large_thumbnail(self, data: bytes):
+        """Display the large album art thumbnail."""
+        px = QPixmap()
+        if px.loadFromData(data):
+            self.art_label.setPixmap(px)
+
+class LibraryPage(BasePage):
+    """Centralized view for your playlists."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._root.addWidget(_section_header("Your Library"))
+        self._list = TrackListView()
+        self._wire_list(self._list)
+        self._root.addWidget(self._list, 1)
+
+    def set_playlists(self, playlists: list[dict]):
+        # Convert playlists to track-formatted items for the list
+        items = [Track(video_id=p['playlistId'], title=p['title'], artist="Playlist") for p in playlists]
+        self._list.set_tracks(items)
