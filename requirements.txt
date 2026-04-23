@@ -1,0 +1,15 @@
+# YTMusic Desktop Client - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core UI
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0
+
+# YouTube Music API (handles Google auth, history, playlists)
+ytmusicapi>=1.7.0
+
+# Audio stream extraction
+yt-dlp>=2024.1.0
+
+# Discord Rich Presence (optional — app still works without it)
+pypresence>=4.3.0
