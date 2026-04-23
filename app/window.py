@@ -361,14 +361,19 @@ class MainWindow(QMainWindow):
     # Playback
     # ------------------------------------------------------------------
 
-    @pyqtSlot(object, list)
-    def _play_tracks(self, track: Track, all_tracks: list[Track]):
+    @pyqtSlot(object, list, int)
+    def _play_tracks(self, track: Track, all_tracks: list[Track], idx: int):
+        # --- NEW: Intercept Playlists and Albums ---
+        # YouTube video IDs are strictly 11 characters. 
+        # Anything longer (PL..., MPREb..., RD...) is a Playlist or Album!
+        if len(track.video_id) > 11:
+            self._load_playlist(track.video_id) # Route to the Playlist page
+            return
+
         if not all_tracks:
             all_tracks = [track]
-        try:
-            idx = all_tracks.index(track)
-        except ValueError:
             idx = 0
+        
         self._player.set_queue(all_tracks, idx)
 
     def _play_from_queue(self, track: Track, _all: list[Track]):

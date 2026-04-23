@@ -173,12 +173,23 @@ class YTMusicService(QObject):
                 res = self._ytm.get_watch_playlist(playlistId=playlist_id, limit=limit)
                 tracks = res.get("tracks", [])
                 return {
-                    "title": res.get("title", "Radio / Podcast Mix"),
+                    "title": res.get("title", "Radio / Mix"),
                     "trackCount": len(tracks),
                     "tracks": tracks
                 }
             
-            # Standard user-created playlists
+            # --- NEW: Albums start with "MPREb" ---
+            if playlist_id.startswith("MPR"):
+                res = self._ytm.get_album(playlist_id)
+                tracks = res.get("tracks", [])
+                # Re-package the album to look like a standard playlist UI
+                return {
+                    "title": res.get("title", "Album"),
+                    "trackCount": res.get("trackCount", len(tracks)),
+                    "tracks": tracks
+                }
+            
+            # Standard user-created playlists (PL...)
             return self._ytm.get_playlist(playlist_id, limit=limit)
             
         self._dispatch(f"playlist:{playlist_id}", _run)
