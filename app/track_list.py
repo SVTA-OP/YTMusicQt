@@ -11,7 +11,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtWidgets import (
     QListView, QWidget, QStyledItemDelegate, QStyleOptionViewItem,
-    QApplication, QMenu, QAbstractItemView,
+    QApplication, QMenu, QAbstractItemView, QStyle
 )
 from PyQt6.QtGui import (
     QPainter, QPixmap, QIcon, QColor, QFont, QFontMetrics, QPalette,
@@ -105,7 +105,7 @@ class TrackDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
         painter.save()
         palette = option.palette
-        is_selected = option.state & 0x00200000   # QStyle.StateFlag.State_Selected
+        is_selected = option.state & QStyle.StateFlag.State_Selected  # QStyle.StateFlag.State_Selected
         is_playing  = index.data(Qt.ItemDataRole.UserRole + 1)
         track: Optional[Track] = index.data(Qt.ItemDataRole.UserRole)
 
