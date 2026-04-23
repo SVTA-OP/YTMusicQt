@@ -364,20 +364,34 @@ class NowPlayingPage(BasePage):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout() # Horizontal split
+        layout.setSpacing(40)  # Better breathing room for KDE layouts
         
-        # Left: Large Thumbnail
+        # Left: Large Thumbnail Container
+        art_container = QVBoxLayout()
+        art_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
         self.art_label = QLabel()
-        self.art_label.setFixedSize(400, 400)
-        self.art_label.setStyleSheet("background: palette(mid); border-radius: 8px;")
+        self.art_label.setFixedSize(420, 420)
+        # KDE Breeze friendly styling using native palette colors
+        self.art_label.setStyleSheet("""
+            QLabel {
+                background: palette(window);
+                border-radius: 12px;
+                border: 1px solid palette(mid);
+            }
+        """)
         self.art_label.setScaledContents(True)
-        layout.addWidget(self.art_label, 1, Qt.AlignmentFlag.AlignCenter)
+        art_container.addWidget(self.art_label)
+        layout.addLayout(art_container, 1)
 
         # Right: Queue
         queue_container = QVBoxLayout()
+        queue_container.setSpacing(8)
         queue_container.addWidget(_section_header("Up Next"))
         self._list = TrackListView()
         self._wire_list(self._list)
         queue_container.addWidget(self._list)
+        
         layout.addLayout(queue_container, 1)
         self._root.addLayout(layout, 1)
 
@@ -394,7 +408,6 @@ class NowPlayingPage(BasePage):
         px = QPixmap()
         if px.loadFromData(data):
             self.art_label.setPixmap(px)
-
 
 class LibraryPage(BasePage):
     """Centralized view for your playlists."""

@@ -319,6 +319,32 @@ class MainWindow(QMainWindow):
             cur = self._player.current_track
             if cur and cur.video_id == video_id:
                 self._player_bar.set_thumbnail(data_bytes)
+        elif task_id.startswith("watch:"):
+            # FIX 3: Fetch thumbnails for the tracks loaded into the queue
+            tracks_raw = (data or {}).get("tracks", [])
+            self._fetch_thumbnails_for(tracks_raw, "watch")
+
+        elif task_id.startswith("thumb:"):
+            video_id = task_id[6:]
+            data_bytes: bytes = data
+            
+            # Forward to static pages
+            self._history_page.set_thumbnail(video_id, data_bytes)
+            self._liked_page.set_thumbnail(video_id, data_bytes)
+            self._search_page.set_thumbnail(video_id, data_bytes)
+            self._playlist_page.set_thumbnail(video_id, data_bytes)
+            self._queue_page._list.set_thumbnail(video_id, data_bytes)
+            
+            # Forward to dynamic HomePage horizontal lists
+            from app.track_list import HorizontalTrackListView
+            for child in self._home_page._body.findChildren(HorizontalTrackListView):
+                child.set_thumbnail(video_id, data_bytes)
+
+            # FIX 2: Only update Player Bar and NowPlaying Large Art if it's the current track
+            cur = self._player.current_track
+            if cur and cur.video_id == video_id:
+                self._player_bar.set_thumbnail(data_bytes)
+                self._now_playing_page.set_large_thumbnail(data_bytes)
 
     @pyqtSlot(str, str)
     def _on_ytm_error(self, task_id: str, message: str):
@@ -353,7 +379,7 @@ class MainWindow(QMainWindow):
             # Use the LAST entry — it is always the highest resolution.
             url = thumbs[-1].get("url", "")
             if url:
-                delay = count * 10   # 10ms stagger
+                delay = count * 5   # 5ms stagger for faster thumbnail loading
                 QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
                 count += 1
 

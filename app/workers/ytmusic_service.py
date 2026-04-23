@@ -60,7 +60,7 @@ class YTMusicService(QObject):
         pool = QThreadPool.globalInstance()
         assert pool is not None
         self._pool: QThreadPool = pool
-        self._pool.setMaxThreadCount(20) # Increased from 4 to 20
+        self._pool.setMaxThreadCount(32)  # Increased for better concurrency
 
     # ------------------------------------------------------------------
     # Auth
@@ -253,8 +253,10 @@ class YTMusicService(QObject):
         """Record a played track in YTMusic history."""
         def _run():
             try:
-                return self._ytm.add_history_item(video_id)
+                # Fetch the full song info dict first, then pass to add_history_item
+                song_info = self._ytm.get_song(video_id)
+                return self._ytm.add_history_item(song_info)
             except Exception as e:
                 log.warning("Could not sync history (upstream ytmusicapi issue): %s", e)
                 return None
-        self._dispatch(f"add_history:{video_id}", _run)    
+        self._dispatch(f"add_history:{video_id}", _run)   

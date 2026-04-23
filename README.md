@@ -7,6 +7,8 @@ A snappy, native-feeling YouTube Music client built with PyQt6.
 - 🎵 **Full playback** — streams audio via yt-dlp, no browser required
 - 🔄 **Google Account sync** — history, liked songs, and playlists pulled from your real YTM account
 - 📋 **Playlist management** — browse, play, and queue any of your playlists
+- 🎨 **Now Playing Dashboard** — large album art and current queue view, auto-switches when playing
+- 📚 **Library View** — centralized access to all your playlists
 - ⚡ **Async everything** — all network calls run on background threads; the UI never freezes
 - 🎨 **System theme** — inherits your OS color scheme (dark/light mode, accent colors)
 - 🎮 **Discord RPC** — shows currently playing track in Discord (optional)
@@ -75,14 +77,16 @@ If Discord is not running or `pypresence` is not installed, the app runs normall
 ## Project Structure
 
 ```
-ytmusic_client/
+YTMusicQt/
 ├── main.py                         # Entry point
 ├── requirements.txt
+├── README.md
+├── .gitignore
 ├── app/
 │   ├── window.py                   # MainWindow — wires everything together
 │   ├── sidebar.py                  # Navigation sidebar
 │   ├── player_bar.py               # Bottom player controls bar
-│   ├── pages.py                    # Home / Search / History / Liked / Playlist / Queue pages
+│   ├── pages.py                    # Home / Search / History / Liked / Playlist / Queue / Now Playing / Library pages
 │   ├── track_list.py               # Reusable fast track list (Model + Delegate + View)
 │   ├── auth_dialog.py              # Sign-in dialog
 │   └── workers/
@@ -98,6 +102,10 @@ ytmusic_client/
 | Shortcut | Action |
 |---|---|
 | `Space` | Play / Pause |
+| `Ctrl+←` | Previous track |
+| `Ctrl+→` | Next track |
+| `Ctrl+F` | Focus search |
+
 | `Ctrl+Right` | Next track |
 | `Ctrl+Left` | Previous track |
 | `Ctrl+F` | Focus search |
