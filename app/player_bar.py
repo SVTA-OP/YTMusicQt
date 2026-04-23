@@ -1,6 +1,7 @@
 """
 Player Bar Widget
 Bottom bar with album art, track info, transport controls, seek and volume.
+Uses system palette / Breeze style — no hardcoded colours.
 """
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QSlider, QPushButton, QSizePolicy, QFrame,
 )
-from PyQt6.QtGui import QPixmap, QIcon, QFont
+from PyQt6.QtGui import QPixmap, QIcon, QFont, QPalette, QColor
 
 from app.workers.player_service import PlayerService, Track
 
@@ -21,28 +22,23 @@ def _fmt(ms: int) -> str:
 
 
 class PlayerBar(QWidget):
-    """Full-width player controls bar."""
+    """Full-width player controls bar — native KDE/Breeze styled."""
 
-    # Forwarded signals for the window to wire
     next_requested     = pyqtSignal()
     previous_requested = pyqtSignal()
 
     def __init__(self, player: PlayerService, parent=None):
         super().__init__(parent)
-        self._player    = player
-        self._seeking   = False
-        self._repeat    = "off"   # off | one | all
-        self._shuffle   = False
+        self._player  = player
+        self._seeking = False
+        self._repeat  = "off"   # off | one | all
+        self._shuffle = False
 
         self.setFixedHeight(90)
         self.setObjectName("PlayerBar")
-
-        # Add a top border line
-        self.setStyleSheet("""
-            #PlayerBar {
-                border-top: 1px solid palette(mid);
-            }
-        """)
+        # Use AutoFillBackground so the widget paints using the window palette.
+        # A 1-px top separator is drawn via a QFrame above the bar (see window.py).
+        self.setAutoFillBackground(True)
 
         self._build_ui()
         self._connect_player()
@@ -63,7 +59,11 @@ class PlayerBar(QWidget):
         self._art_label = QLabel()
         self._art_label.setFixedSize(64, 64)
         self._art_label.setScaledContents(True)
-        self._art_label.setStyleSheet("border-radius: 4px; background: palette(mid);")
+        # Breeze-friendly: use AlternateBase for the placeholder
+        self._art_label.setAutoFillBackground(True)
+        art_pal = self._art_label.palette()
+        art_pal.setColor(QPalette.ColorRole.Window, art_pal.color(QPalette.ColorRole.AlternateBase))
+        self._art_label.setPalette(art_pal)
         left.addWidget(self._art_label)
 
         info_col = QVBoxLayout()
@@ -107,12 +107,12 @@ class PlayerBar(QWidget):
             b.setToolTip(tooltip)
             return b
 
-        self._shuffle_btn  = _tbtn("⇄", "Shuffle")
-        self._prev_btn     = _tbtn("⏮", "Previous")
-        self._play_btn     = _tbtn("▶", "Play / Pause")
+        self._shuffle_btn = _tbtn("⇄", "Shuffle")
+        self._prev_btn    = _tbtn("⏮", "Previous")
+        self._play_btn    = _tbtn("▶", "Play / Pause")
         self._play_btn.setFixedSize(44, 44)
-        self._next_btn     = _tbtn("⏭", "Next")
-        self._repeat_btn   = _tbtn("↻", "Repeat")
+        self._next_btn    = _tbtn("⏭", "Next")
+        self._repeat_btn  = _tbtn("↻", "Repeat")
 
         self._shuffle_btn.clicked.connect(self._toggle_shuffle)
         self._prev_btn.clicked.connect(self._player.previous)
@@ -212,6 +212,10 @@ class PlayerBar(QWidget):
         self._title_label.setText(self._elide(track.title, 28))
         self._artist_label.setText(self._elide(track.artist, 32))
         self._art_label.clear()
+        # Reset album art placeholder
+        art_pal = self._art_label.palette()
+        art_pal.setColor(QPalette.ColorRole.Window, self.palette().color(QPalette.ColorRole.AlternateBase))
+        self._art_label.setPalette(art_pal)
 
     def set_thumbnail(self, data: bytes):
         px = QPixmap()
@@ -248,19 +252,18 @@ class PlayerBar(QWidget):
     def _toggle_shuffle(self):
         self._shuffle = not self._shuffle
         self._player.set_shuffle(self._shuffle)
-        if self._shuffle:
-            self._shuffle_btn.setStyleSheet("color: palette(highlight);")
-        else:
-            self._shuffle_btn.setStyleSheet("")
+        # Use highlight colour from palette — no hardcoded hex
+        hl = self.palette().color(QPalette.ColorRole.Highlight).name()
+        self._shuffle_btn.setStyleSheet(f"color: {hl};" if self._shuffle else "")
 
     def _cycle_repeat(self):
         modes  = ["off", "all", "one"]
         icons  = {"off": "↻", "all": "↻", "one": "🔂"}
-        labels = {"off": "", "all": "color: palette(highlight);", "one": "color: palette(highlight);"}
+        hl = self.palette().color(QPalette.ColorRole.Highlight).name()
         self._repeat = modes[(modes.index(self._repeat) + 1) % 3]
         self._player.set_repeat(self._repeat)
         self._repeat_btn.setText(icons[self._repeat])
-        self._repeat_btn.setStyleSheet(labels[self._repeat])
+        self._repeat_btn.setStyleSheet(f"color: {hl};" if self._repeat != "off" else "")
 
     @staticmethod
     def _elide(text: str, max_chars: int) -> str:

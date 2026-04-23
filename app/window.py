@@ -118,10 +118,15 @@ class MainWindow(QMainWindow):
         body.addWidget(line)
         body.addWidget(self._pages, 1)
 
-        # Player bar
+        # Player bar — separated by a native HLine (Breeze renders this
+        # as a proper 1-px rule using the theme's mid colour).
         self._player_bar = PlayerBar(self._player)
+        bar_sep = QFrame()
+        bar_sep.setFrameShape(QFrame.Shape.HLine)
+        bar_sep.setFrameShadow(QFrame.Shadow.Sunken)
 
         root.addLayout(body, 1)
+        root.addWidget(bar_sep)
         root.addWidget(self._player_bar)
 
     # ------------------------------------------------------------------
@@ -322,11 +327,14 @@ class MainWindow(QMainWindow):
         count = 0
         for raw in raw_list[:30]:
             vid = raw.get("videoId", "")
-            thumbs = raw.get("thumbnails") or []
+            # ytmusicapi uses 'thumbnails' for most endpoints but 'thumbnail'
+            # (singular list) for history items — handle both.
+            thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
             if not vid or not thumbs or vid in seen:
                 continue
             seen.add(vid)
-            url = thumbs[0].get("url", "")
+            # Use the LAST entry — it is always the highest resolution.
+            url = thumbs[-1].get("url", "")
             if url:
                 delay = count * 40   # 40ms stagger
                 QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
@@ -365,6 +373,11 @@ class MainWindow(QMainWindow):
         for page in (self._history_page, self._liked_page,
                      self._playlist_page, self._queue_page):
             page.set_playing(track.video_id)
+        # Sync play to YTMusic history (non-blocking, best-effort)
+        if self._ytm.is_authenticated():
+            self._ytm.add_history_item(track.video_id)
+        # Invalidate cached history so next visit fetches fresh data
+        self._history_page._list.track_model.set_tracks([])
 
     def _on_player_state(self, state: str):
         self._update_discord_rpc()

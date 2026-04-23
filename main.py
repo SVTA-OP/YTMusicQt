@@ -5,14 +5,22 @@ YTMusic Desktop Client - Main Entry Point
 import sys
 import os
 
-# Ensure Qt uses system theme
-os.environ.setdefault("QT_QPA_PLATFORMTHEME", "gtk3")
+# Use the KDE platform theme so PyQt6 picks up Breeze colours, fonts,
+# icon themes, and window decorations automatically on Plasma 6.
+# On non-KDE desktops this env-var is simply ignored.
+os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette
-
+from PyQt6.QtWidgets import QApplication, QStyleFactory
 from app.window import MainWindow
+
+
+def _pick_style() -> "str | None":
+    """Return the best available style name, preferring Breeze."""
+    available = {s.lower(): s for s in QStyleFactory.keys()}
+    for candidate in ("breeze", "breezedark", "fusion"):
+        if candidate in available:
+            return available[candidate]
+    return None
 
 
 def main():
@@ -22,11 +30,13 @@ def main():
     app.setOrganizationName("YTMusicDesktop")
     app.setOrganizationDomain("ytmusic.local")
 
-    # Use system style
-    app.setStyle("Fusion")  # Fusion adapts to system palette well
-
-    # Enable high DPI
-    # app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    # If the platform theme already loaded Breeze (KDE session), do nothing.
+    # Otherwise explicitly set the best available style.
+    current = app.style().objectName().lower() if app.style() else ""
+    if "breeze" not in current:
+        style_name = _pick_style()
+        if style_name:
+            app.setStyle(style_name)
 
     window = MainWindow()
     window.show()

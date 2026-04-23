@@ -369,7 +369,9 @@ def _raw_to_track(raw: dict) -> Track | None:
             duration = 0
 
     thumb_url = ""
-    thumbs    = raw.get("thumbnails") or []
+    # ytmusicapi uses 'thumbnails' (list) for most endpoints,
+    # but 'thumbnail' (also a list) for history items.
+    thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
     if thumbs:
         thumb_url = thumbs[-1].get("url", "")
 

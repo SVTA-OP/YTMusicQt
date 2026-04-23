@@ -128,6 +128,13 @@ class YTMusicService(QObject):
             return self._ytm.get_history()
         self._dispatch("history", _run)
 
+    def add_history_item(self, video_id: str):
+        """Record a played track in YTMusic history."""
+        def _run():
+            # The ytmusicapi method to add a track to history
+            return self._ytm.add_history_item(video_id)
+        self._dispatch(f"add_history:{video_id}", _run)
+
     def remove_history_items(self, feedback_tokens: list[str]):
         def _run():
             return self._ytm.remove_history_items(feedback_tokens)
