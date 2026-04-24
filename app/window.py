@@ -263,8 +263,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     @pyqtSlot(str, object)
+    @pyqtSlot(str, object)
     def _on_ytm_result(self, task_id: str, data):
         if task_id == "home":
+            log.debug("Home data loaded: %d sections", len(data or []))
             self._home_page.show_loading(False)
             self._home_page.set_home_data(data or [])
             # --- NEW: Fetch thumbnails for the home page sections! ---
@@ -272,6 +274,7 @@ class MainWindow(QMainWindow):
                 self._fetch_thumbnails_for(section.get("contents", []), "home")
 
         elif task_id == "history":
+            log.debug("History loaded: %d items", len(data or []))
             self._history_page.show_loading(False)
             self._history_page.set_history(data or [])
             self._fetch_thumbnails_for(data or [], "history")
@@ -283,6 +286,7 @@ class MainWindow(QMainWindow):
             self._fetch_thumbnails_for(tracks_raw, "liked")
 
         elif task_id == "library_playlists":
+            log.debug("Library playlists loaded: %d playlists", len(data or []))
             self._sidebar.set_playlists(data or [])
             self._library_page.set_playlists(data or [])
 
@@ -298,29 +302,8 @@ class MainWindow(QMainWindow):
             self._fetch_thumbnails_for(data or [], "search")
             self._status.showMessage(f"{len(data or [])} results")
 
-        elif task_id.startswith("thumb:"):
-            video_id = task_id[6:]
-            data_bytes: bytes = data
-            
-            # Forward to static pages
-            self._history_page.set_thumbnail(video_id, data_bytes)
-            self._liked_page.set_thumbnail(video_id, data_bytes)
-            self._search_page.set_thumbnail(video_id, data_bytes)
-            self._playlist_page.set_thumbnail(video_id, data_bytes)
-            self._queue_page._list.set_thumbnail(video_id, data_bytes)
-            self._now_playing_page.set_large_thumbnail(data_bytes)
-            
-            # --- NEW: Forward to dynamic HomePage horizontal lists ---
-            from app.track_list import HorizontalTrackListView
-            for child in self._home_page._body.findChildren(HorizontalTrackListView):
-                child.set_thumbnail(video_id, data_bytes)
-
-            # Player bar if this is current track
-            cur = self._player.current_track
-            if cur and cur.video_id == video_id:
-                self._player_bar.set_thumbnail(data_bytes)
         elif task_id.startswith("watch:"):
-            # FIX 3: Fetch thumbnails for the tracks loaded into the queue
+            # This fetches thumbnails for the tracks loaded into your queue!
             tracks_raw = (data or {}).get("tracks", [])
             self._fetch_thumbnails_for(tracks_raw, "watch")
 
@@ -364,11 +347,11 @@ class MainWindow(QMainWindow):
         seen = set()
         count = 0
         for raw in raw_list[:30]:
-            # --- NEW SAFETY CHECK ---
             if not raw:
                 continue
 
-            # Look for playlistId and browseId too
+            # Priority: videoId (tracks) > playlistId (playlists) > browseId (albums/artists)
+            # This ensures correct ID→thumbnail matching
             vid = raw.get("videoId") or raw.get("playlistId") or raw.get("browseId", "")
             
             thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
@@ -376,10 +359,9 @@ class MainWindow(QMainWindow):
                 continue
             
             seen.add(vid)
-            # Use the LAST entry — it is always the highest resolution.
-            url = thumbs[-1].get("url", "")
+            url = thumbs[-1].get("url", "") if thumbs else ""
             if url:
-                delay = count * 5   # 5ms stagger for faster thumbnail loading
+                delay = count * 5   # 5ms stagger
                 QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
                 count += 1
 
@@ -411,6 +393,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_track_changed(self, track: Track):
+        log.info("Now playing: %s by %s", track.title, track.artist)
         self.setWindowTitle(f"{track.title} — {track.artist} | YTMusic Desktop")
         # Update Now Playing Page
         self._now_playing_page.set_now_playing(track, self._player.get_queue())
@@ -418,27 +401,24 @@ class MainWindow(QMainWindow):
         if self._pages.currentWidget() not in (self._search_page, self._history_page):
             self._go_to_page("now_playing")
 
-        # Fetch thumbnail for player bar and now playing art
+        # Fetch thumbnail for player bar and now playing art (match by videoId)
         if track.thumbnail_url:
+            log.debug("Fetching thumbnail for %s", track.video_id)
             self._ytm.download_thumbnail(track.thumbnail_url, track.video_id)
 
-        # Load up-next queue only if authenticated
+        # Load up-next queue and sync history only if authenticated
         if self._ytm.is_authenticated():
             self._ytm.get_watch_playlist(track.video_id)
             # Sync play to YTMusic history (non-blocking, best-effort)
             self._ytm.add_history_item(track.video_id)
         else:
-            log.warning(
-                "Skipping watch playlist sync and history update because YTMusic is not authenticated"
-            )
+            log.debug("Skipping API calls (not authenticated)")
 
-        # Update playing indicators
+        # Update playing indicators across all pages
         for page in (self._history_page, self._liked_page,
                      self._playlist_page, self._queue_page):
             page.set_playing(track.video_id)
         self._now_playing_page.set_playing(track.video_id)
-        # Invalidate cached history so next visit fetches fresh data
-        self._history_page._list.track_model.set_tracks([])
 
     def _on_player_state(self, state: str):
         log.info("Player state changed: %s", state)

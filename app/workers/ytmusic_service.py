@@ -253,10 +253,15 @@ class YTMusicService(QObject):
         """Record a played track in YTMusic history."""
         def _run():
             try:
-                # Fetch the full song info dict first, then pass to add_history_item
-                song_info = self._ytm.get_song(video_id)
-                return self._ytm.add_history_item(song_info)
-            except Exception as e:
-                log.warning("Could not sync history (upstream ytmusicapi issue): %s", e)
+                # ytmusicapi.add_history_item expects a video_id directly
+                result = self._ytm.add_history_item(video_id)
+                log.info("History item synced for %s", video_id)
+                return result
+            except AttributeError:
+                # Fallback: ytmusicapi might not have add_history_item in older versions
+                log.warning("add_history_item not available in ytmusicapi version")
+                return None
+            except Exception as exc:
+                log.warning("Could not sync history for %s: %s", video_id, exc)
                 return None
         self._dispatch(f"add_history:{video_id}", _run)   
