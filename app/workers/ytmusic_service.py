@@ -22,22 +22,26 @@ class WorkerSignals(QObject):
 
 
 class _Task(QRunnable):
-    def __init__(self, task_id: str, fn, *args, **kwargs):
+    def __init__(self, task_id: str, fn, signals: WorkerSignals, *args, **kwargs):
         super().__init__()
         self.task_id  = task_id
         self.fn       = fn
         self.args     = args
         self.kwargs   = kwargs
-        self.signals  = WorkerSignals()
+        self.signals  = signals  # Passed from parent to avoid garbage collection
 
     @pyqtSlot()
     def run(self):
         try:
             result = self.fn(*self.args, **self.kwargs)
-            self.signals.result.emit(self.task_id, result)
+            # Check if signals object still exists before emitting
+            if self.signals:
+                self.signals.result.emit(self.task_id, result)
         except Exception as exc:
             log.exception("Worker task %s failed", self.task_id)
-            self.signals.error.emit(self.task_id, str(exc))
+            # Check if signals object still exists before emitting
+            if self.signals:
+                self.signals.error.emit(self.task_id, str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +104,11 @@ class YTMusicService(QObject):
             log.warning("Cannot dispatch %s: %s", task_id, message)
             self.error.emit(task_id, message)
             return
-        task = _Task(task_id, fn, *args, **kwargs)
-        task.signals.result.connect(self.result)
-        task.signals.error.connect(self.error)
+        # Create signal container in parent to prevent garbage collection
+        signals = WorkerSignals()
+        signals.result.connect(self.result)
+        signals.error.connect(self.error)
+        task = _Task(task_id, fn, signals, *args, **kwargs)
         self._pool.start(task)
 
     # ------------------------------------------------------------------
@@ -244,24 +250,52 @@ class YTMusicService(QObject):
 
     def download_thumbnail(self, url: str, video_id: str):
         import urllib.request
+        import time
+        
         def _run():
-            with urllib.request.urlopen(url, timeout=6) as resp:
-                return resp.read()
+            """Download thumbnail with retry logic and exponential backoff."""
+            max_retries = 3
+            base_timeout = 10  # Increased from 6 to 10 seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    timeout = base_timeout + (attempt * 2)  # 10s, 12s, 14s
+                    with urllib.request.urlopen(url, timeout=timeout) as resp:
+                        data = resp.read()
+                        if data:
+                            log.debug("Downloaded thumbnail for %s (attempt %d)", video_id, attempt + 1)
+                            return data
+                except (urllib.error.URLError, TimeoutError) as e:
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt)  # 1s, 2s, 4s exponential backoff
+                        log.warning("Thumbnail download failed for %s (attempt %d/%d), retrying in %ds: %s",
+                                  video_id, attempt + 1, max_retries, wait_time, type(e).__name__)
+                        time.sleep(wait_time)
+                    else:
+                        log.error("Thumbnail download failed for %s after %d attempts: %s",
+                                video_id, max_retries, str(e))
+                        raise
+                except Exception as e:
+                    log.error("Unexpected error downloading thumbnail for %s: %s", video_id, str(e))
+                    raise
+        
         self._dispatch(f"thumb:{video_id}", _run)
 
     def add_history_item(self, video_id: str):
-        """Record a played track in YTMusic history."""
+        """Record a played track in YTMusic history (non-blocking, best-effort)."""
         def _run():
             try:
                 # ytmusicapi.add_history_item expects a video_id directly
-                result = self._ytm.add_history_item(video_id)
-                log.info("History item synced for %s", video_id)
-                return result
-            except AttributeError:
-                # Fallback: ytmusicapi might not have add_history_item in older versions
-                log.warning("add_history_item not available in ytmusicapi version")
-                return None
+                # Note: This method may not be available in all ytmusicapi versions
+                if hasattr(self._ytm, 'add_history_item'):
+                    result = self._ytm.add_history_item(video_id)
+                    log.info("History item synced for %s", video_id)
+                    return {"status": "synced", "video_id": video_id}
+                else:
+                    log.debug("add_history_item not available in ytmusicapi; skipping")
+                    return {"status": "unavailable", "video_id": video_id}
             except Exception as exc:
-                log.warning("Could not sync history for %s: %s", video_id, exc)
-                return None
+                # History sync failures should not crash the app
+                log.debug("History sync skipped for %s (non-critical): %s", video_id, type(exc).__name__)
+                return {"status": "failed", "video_id": video_id, "error": str(exc)}
         self._dispatch(f"add_history:{video_id}", _run)   

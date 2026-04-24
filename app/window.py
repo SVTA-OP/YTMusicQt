@@ -309,28 +309,49 @@ class MainWindow(QMainWindow):
 
         elif task_id.startswith("thumb:"):
             video_id = task_id[6:]
+            # Handle thumbnail data safely
+            if not isinstance(data, bytes) or len(data) == 0:
+                log.debug("Skipping empty/invalid thumbnail data for %s", video_id)
+                return
+            
             data_bytes: bytes = data
             
-            # Forward to static pages
-            self._history_page.set_thumbnail(video_id, data_bytes)
-            self._liked_page.set_thumbnail(video_id, data_bytes)
-            self._search_page.set_thumbnail(video_id, data_bytes)
-            self._playlist_page.set_thumbnail(video_id, data_bytes)
-            self._queue_page._list.set_thumbnail(video_id, data_bytes)
-            
-            # Forward to dynamic HomePage horizontal lists
-            from app.track_list import HorizontalTrackListView
-            for child in self._home_page._body.findChildren(HorizontalTrackListView):
-                child.set_thumbnail(video_id, data_bytes)
+            # Forward to static pages with error handling
+            try:
+                self._history_page.set_thumbnail(video_id, data_bytes)
+                self._liked_page.set_thumbnail(video_id, data_bytes)
+                self._search_page.set_thumbnail(video_id, data_bytes)
+                self._playlist_page.set_thumbnail(video_id, data_bytes)
+                self._queue_page._list.set_thumbnail(video_id, data_bytes)
+                
+                # Forward to dynamic HomePage horizontal lists
+                from app.track_list import HorizontalTrackListView
+                for child in self._home_page._body.findChildren(HorizontalTrackListView):
+                    child.set_thumbnail(video_id, data_bytes)
 
-            # FIX 2: Only update Player Bar and NowPlaying Large Art if it's the current track
-            cur = self._player.current_track
-            if cur and cur.video_id == video_id:
-                self._player_bar.set_thumbnail(data_bytes)
-                self._now_playing_page.set_large_thumbnail(data_bytes)
+                # Only update Player Bar and NowPlaying Large Art if it's the current track
+                cur = self._player.current_track
+                if cur and cur.video_id == video_id:
+                    self._player_bar.set_thumbnail(data_bytes)
+                    self._now_playing_page.set_large_thumbnail(data_bytes)
+            except Exception as e:
+                log.error("Error setting thumbnail for %s: %s", video_id, str(e))
+
+        elif task_id.startswith("add_history:"):
+            # History sync is non-critical; ignore results gracefully
+            video_id = task_id[12:]
+            if isinstance(data, dict) and data.get("status") == "synced":
+                log.debug("History synced for %s", video_id)
+            else:
+                log.debug("History sync skipped for %s (not critical)", video_id)
 
     @pyqtSlot(str, str)
     def _on_ytm_error(self, task_id: str, message: str):
+        # Ignore non-critical errors (thumbnails, history syncing)
+        if task_id.startswith("thumb:") or task_id.startswith("add_history:"):
+            log.debug("Non-critical error [%s]: %s", task_id, message)
+            return
+        
         log.error("YTMusic API error [%s]: %s", task_id, message)
         # Hide loading bars
         for page in (self._home_page, self._search_page,
@@ -343,10 +364,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _fetch_thumbnails_for(self, raw_list: list[dict], _source: str):
-        """Fetch thumbnails for first 30 items; stagger to avoid hammering."""
+        """Fetch thumbnails for first 15 items; stagger to reduce network load."""
         seen = set()
         count = 0
-        for raw in raw_list[:30]:
+        for raw in raw_list[:15]:  # Reduced from 30 to 15 to reduce network pressure
             if not raw:
                 continue
 
@@ -361,7 +382,7 @@ class MainWindow(QMainWindow):
             seen.add(vid)
             url = thumbs[-1].get("url", "") if thumbs else ""
             if url:
-                delay = count * 5   # 5ms stagger
+                delay = count * 10  # 10ms stagger (was 5ms, now more relaxed)
                 QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
                 count += 1
 
