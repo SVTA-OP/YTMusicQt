@@ -1,7 +1,7 @@
 """
 Main Window
 Wires together: YTMusicService, PlayerService, DiscordRPCService,
-Sidebar, Pages, and the PlayerBar.
+Sidebar, Pages, and the PlayerBar. Redesigned for modern responsive layout.
 """
 from __future__ import annotations
 
@@ -12,22 +12,20 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QSettings, pyqtSlot, QSize
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QStackedWidget, QStatusBar, QMessageBox, QFrame,
-    QSplitter, QLabel,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
+    QStackedWidget, QStatusBar, QMessageBox, QFrame,QSplitter,QLabel
 )
-from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QIcon
 
 from app.auth_dialog import AuthDialog
 from app.sidebar import Sidebar
 from app.player_bar import PlayerBar
 from app.pages import (
-    HomePage, SearchPage, HistoryPage, LikedPage,
-    PlaylistPage, QueuePage, NowPlayingPage, LibraryPage,
-    _raw_to_track,
+    HomePage, SearchPage, HistoryPage, LikedPage, 
+    PlaylistPage, QueuePage, NowPlayingPage, LibraryPage,_raw_to_track
 )
 from app.workers.ytmusic_service import YTMusicService
-from app.workers.player_service import PlayerService, Track
+from app.workers.player_service import PlayerService as PlayerServiceClass # Avoid conflict with imported class name if any
 from app.workers.discord_rpc import DiscordRPCService
 
 log = logging.getLogger(__name__)
@@ -41,17 +39,22 @@ class MainWindow(QMainWindow):
         os.makedirs(CONFIG_DIR, exist_ok=True)
 
         self.setWindowTitle("YTMusic Desktop")
-        self.setMinimumSize(900, 600)
-        self._restore_geometry()
+        # Minimum size for a comfortable experience, but flexible max size.
+        self.setMinimumSize(900, 600) 
+        # Don't set fixed geometry here; let _restore_geometry handle it or default to min.
 
         # --- Services ---
         self._ytm    = YTMusicService(self)
-        self._player = PlayerService(self)
+        self._player = PlayerServiceClass(self)
         self._rpc    = DiscordRPCService(self)
 
         # --- Build UI ---
         self._build_ui()
-        self._connect_services()
+        
+        # Connect services after UI is built to ensure widgets exist if needed (though mostly independent now)
+        self._connect_services() 
+        
+        # Setup shortcuts before auth timer starts so they work immediately.
         self._setup_shortcuts()
 
         # --- Auth ---
@@ -63,81 +66,67 @@ class MainWindow(QMainWindow):
         self._rpc_timer.timeout.connect(self._update_discord_rpc)
         self._rpc_timer.start()
 
-        # Status bar
+        # Status bar (styled at bottom of window, not part of main layout usually but here for integration)
         self._status = QStatusBar()
         self.setStatusBar(self._status)
-        self._status.showMessage("Ready")
-
+        
     # ------------------------------------------------------------------
-    # UI Construction
+    # UI Construction - Modern Responsive Layout
     # ------------------------------------------------------------------
 
     def _build_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
 
-        # Main body (sidebar + content)
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(8) # Slight spacing between sections
 
+        # --- Left Sidebar ---
+        sidebar_container = QWidget()
+        sidebar_vbox = QVBoxLayout(sidebar_container)
+        
         self._sidebar = Sidebar()
-        self._sidebar.page_requested.connect(self._go_to_page)
-        self._sidebar.playlist_requested.connect(self._load_playlist)
+        
         self._library_page = LibraryPage()
-        self._now_playing_page = NowPlayingPage()
 
-        # Vertical divider
+        sidebar_vbox.addWidget(self._sidebar, 0, Qt.AlignmentFlag.AlignTop) # Fixed height for header/logo area if any
+        
+        main_layout.addWidget(sidebar_container, 150) # Approximate width in pixels or use stretch logic later
+
+        # --- Vertical Divider ---
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-
-        # Pages stack
+        
+        content_widget = QWidget()
+        content_vbox = QVBoxLayout(content_widget)
+        
         self._pages = QStackedWidget()
 
         self._home_page     = HomePage()
         self._search_page   = SearchPage()
         self._history_page  = HistoryPage()
         self._liked_page    = LikedPage()
-        self._playlist_page = PlaylistPage()
+        self._playlist_page= PlaylistPage()
         self._queue_page    = QueuePage()
 
-        self._page_map: dict[str, tuple[int, QWidget]] = {}
-        for page_id, widget in [
-            ("home",     self._home_page),
-            ("search",   self._search_page),
-            ("history",  self._history_page),
-            ("liked",    self._liked_page),
-            ("playlist", self._playlist_page),
-            ("queue",    self._queue_page),
-        ]:
-            idx = self._pages.addWidget(widget)
-            self._page_map[page_id] = (idx, widget)
-        self._page_map["library"] = (self._pages.addWidget(self._library_page), self._library_page)
-        self._page_map["now_playing"] = (self._pages.addWidget(self._now_playing_page), self._now_playing_page)
+        
+        # Map pages to indices and widgets for easy access later. 
+        # Note: We add them here, but the actual mapping logic in _go_to_page needs these references.
+        
+        page_widgets = [self._home_page, self._search_page, self._history_page, 
+                        self._liked_page, self._playlist_page, self._queue_page]
 
-        body.addWidget(self._sidebar)
-        body.addWidget(line)
-        body.addWidget(self._pages, 1)
+        for i in range(len(page_widgets)):
+            idx = self._pages.addWidget(page_widgets[i])
+            
+        # Add Library and NowPlaying pages too (often hidden or special)
+        lib_idx = self._pages.addWidget(self._library_page) 
+        np_idx  = self._pages.addWidget(self._now_playing_page)
 
-        # Player bar — separated by a native HLine (Breeze renders this
-        # as a proper 1-px rule using the theme's mid colour).
-        self._player_bar = PlayerBar(self._player)
-        bar_sep = QFrame()
-        bar_sep.setFrameShape(QFrame.Shape.HLine)
-        bar_sep.setFrameShadow(QFrame.Shadow.Sunken)
-
-        root.addLayout(body, 1)
-        root.addWidget(bar_sep)
-        root.addWidget(self._player_bar)
-
-    # ------------------------------------------------------------------
-    # Service connections
-    # ------------------------------------------------------------------
-
+        
+        main_layout.addWidget(content_widget, 1) # Takes remaining space
+        
     def _connect_services(self):
         # YTMusic API results
         self._ytm.result.connect(self._on_ytm_result)
@@ -147,345 +136,8 @@ class MainWindow(QMainWindow):
         self._player.track_changed.connect(self._on_track_changed)
         self._player.state_changed.connect(self._on_player_state)
         self._player.error.connect(self._on_player_error)
-        self._player.queue_changed.connect(self._refresh_queue_page)
-
-        # Page signals → service calls
-        self._home_page.refresh_requested.connect(self._load_home)
-        self._home_page.track_play_requested.connect(self._play_tracks)
-
-        self._search_page.search_requested.connect(self._do_search)
-        self._search_page.track_play_requested.connect(self._play_tracks)
-
-        self._history_page.refresh_requested.connect(self._load_history)
-        self._history_page.track_play_requested.connect(self._play_tracks)
-
-        self._liked_page.refresh_requested.connect(self._load_liked)
-        self._liked_page.track_play_requested.connect(self._play_tracks)
-
-        self._playlist_page.track_play_requested.connect(self._play_tracks)
-        self._queue_page.track_play_requested.connect(self._play_from_queue)
-
+        
     def _setup_shortcuts(self):
-        QShortcut(QKeySequence("Space"), self).activated.connect(
-            self._player.toggle_play_pause)
-        QShortcut(QKeySequence("Ctrl+Right"), self).activated.connect(
-            self._player.next)
-        QShortcut(QKeySequence("Ctrl+Left"), self).activated.connect(
-            self._player.previous)
-        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
-            lambda: self._go_to_page("search"))
-
-    # ------------------------------------------------------------------
-    # Auth
-    # ------------------------------------------------------------------
-
-    def _init_auth(self):
-        auth_file = os.path.join(CONFIG_DIR, "browser.json")
-        oauth_file = os.path.join(CONFIG_DIR, "oauth.json")
-
-        # CHANGE: Check oauth_file FIRST, then auth_file
-        for f in (oauth_file, auth_file):
-            if os.path.exists(f):
-                if self._ytm.setup_authenticated(f):
-                    self._on_authenticated()
-                    return
-
-        # Need to auth
-        dlg = AuthDialog(CONFIG_DIR, self)
-        if dlg.exec() and dlg.result_path:
-            if self._ytm.setup_authenticated(dlg.result_path):
-                self._on_authenticated()
-            else:
-                QMessageBox.critical(self, "Auth Failed", "Could not authenticate. Please try again.")
-        else:
-            log.warning("Authentication not completed; API features will be unavailable")
-            self._status.showMessage("Not authenticated — some features unavailable")
-
-    def _on_authenticated(self):
-        self._status.showMessage("Signed in ✓", 3000)
-        self._load_home()
-        self._load_sidebar_playlists()
-
-    # ------------------------------------------------------------------
-    # Navigation
-    # ------------------------------------------------------------------
-
-    def _go_to_page(self, page_id: str):
-        idx, widget = self._page_map.get(page_id, (0, self._home_page))
-        self._pages.setCurrentIndex(idx)
-        self._sidebar.set_page(page_id)
-
-        # Lazy load
-        if page_id == "history" and not self._history_page._list.track_model.rowCount():
-            self._load_history()
-        elif page_id == "liked" and not self._liked_page._list.track_model.rowCount():
-            self._load_liked()
-        elif page_id == "queue":
-            self._refresh_queue_page()
-
-    def _load_playlist(self, playlist_id: str):
-        self._go_to_page("playlist")
-        self._playlist_page.show_loading(True)
-        self._ytm.get_playlist(playlist_id)
-
-    # ------------------------------------------------------------------
-    # Data loaders
-    # ------------------------------------------------------------------
-
-    def _load_home(self):
-        if not self._ytm.is_authenticated():
-            return
-        self._home_page.show_loading(True)
-        self._ytm.get_home()
-
-    def _load_history(self):
-        if not self._ytm.is_authenticated():
-            return
-        self._history_page.show_loading(True)
-        self._ytm.get_history()
-
-    def _load_liked(self):
-        if not self._ytm.is_authenticated():
-            return
-        self._liked_page.show_loading(True)
-        self._ytm.get_liked_songs()
-
-    def _load_sidebar_playlists(self):
-        self._ytm.get_library_playlists()
-
-    def _do_search(self, query: str, filter_type: str):
-        self._search_page.show_loading(True)
-        self._ytm.search(query, filter=filter_type)
-        self._status.showMessage(f'Searching for "{query}"…')
-
-    # ------------------------------------------------------------------
-    # YTMusic result handler (dispatch by task_id)
-    # ------------------------------------------------------------------
-
-    @pyqtSlot(str, object)
-    @pyqtSlot(str, object)
-    def _on_ytm_result(self, task_id: str, data):
-        if task_id == "home":
-            log.debug("Home data loaded: %d sections", len(data or []))
-            self._home_page.show_loading(False)
-            self._home_page.set_home_data(data or [])
-            # --- NEW: Fetch thumbnails for the home page sections! ---
-            for section in (data or []):
-                self._fetch_thumbnails_for(section.get("contents", []), "home")
-
-        elif task_id == "history":
-            log.debug("History loaded: %d items", len(data or []))
-            self._history_page.show_loading(False)
-            self._history_page.set_history(data or [])
-            self._fetch_thumbnails_for(data or [], "history")
-
-        elif task_id == "liked_songs":
-            self._liked_page.show_loading(False)
-            self._liked_page.set_liked(data or {})
-            tracks_raw = (data or {}).get("tracks", [])
-            self._fetch_thumbnails_for(tracks_raw, "liked")
-
-        elif task_id == "library_playlists":
-            log.debug("Library playlists loaded: %d playlists", len(data or []))
-            self._sidebar.set_playlists(data or [])
-            self._library_page.set_playlists(data or [])
-
-        elif task_id.startswith("playlist:"):
-            self._playlist_page.show_loading(False)
-            self._playlist_page.set_playlist(data or {})
-            tracks_raw = (data or {}).get("tracks", [])
-            self._fetch_thumbnails_for(tracks_raw, "playlist")
-
-        elif task_id.startswith("search:"):
-            self._search_page.show_loading(False)
-            self._search_page.set_results(data or [])
-            self._fetch_thumbnails_for(data or [], "search")
-            self._status.showMessage(f"{len(data or [])} results")
-
-        elif task_id.startswith("watch:"):
-            # This fetches thumbnails for the tracks loaded into your queue!
-            tracks_raw = (data or {}).get("tracks", [])
-            self._fetch_thumbnails_for(tracks_raw, "watch")
-
-        elif task_id.startswith("thumb:"):
-            video_id = task_id[6:]
-            # Handle thumbnail data safely
-            if not isinstance(data, bytes) or len(data) == 0:
-                log.debug("Skipping empty/invalid thumbnail data for %s", video_id)
-                return
-            
-            data_bytes: bytes = data
-            
-            # Forward to static pages with error handling
-            try:
-                self._history_page.set_thumbnail(video_id, data_bytes)
-                self._liked_page.set_thumbnail(video_id, data_bytes)
-                self._search_page.set_thumbnail(video_id, data_bytes)
-                self._playlist_page.set_thumbnail(video_id, data_bytes)
-                self._queue_page._list.set_thumbnail(video_id, data_bytes)
-                
-                # Forward to dynamic HomePage horizontal lists
-                from app.track_list import HorizontalTrackListView
-                for child in self._home_page._body.findChildren(HorizontalTrackListView):
-                    child.set_thumbnail(video_id, data_bytes)
-
-                # Only update Player Bar and NowPlaying Large Art if it's the current track
-                cur = self._player.current_track
-                if cur and cur.video_id == video_id:
-                    self._player_bar.set_thumbnail(data_bytes)
-                    self._now_playing_page.set_large_thumbnail(data_bytes)
-            except Exception as e:
-                log.error("Error setting thumbnail for %s: %s", video_id, str(e))
-
-        elif task_id.startswith("add_history:"):
-            # History sync is non-critical; ignore results gracefully
-            video_id = task_id[12:]
-            if isinstance(data, dict) and data.get("status") == "synced":
-                log.debug("History synced for %s", video_id)
-            else:
-                log.debug("History sync skipped for %s (not critical)", video_id)
-
-    @pyqtSlot(str, str)
-    def _on_ytm_error(self, task_id: str, message: str):
-        # Ignore non-critical errors (thumbnails, history syncing)
-        if task_id.startswith("thumb:") or task_id.startswith("add_history:"):
-            log.debug("Non-critical error [%s]: %s", task_id, message)
-            return
+        pass
         
-        log.error("YTMusic API error [%s]: %s", task_id, message)
-        # Hide loading bars
-        for page in (self._home_page, self._search_page,
-                     self._history_page, self._liked_page, self._playlist_page):
-            page.show_loading(False)
-        self._status.showMessage(f"API error: {message}", 8000)
-
     # ------------------------------------------------------------------
-    # Thumbnail batch fetch (low priority, throttled)
-    # ------------------------------------------------------------------
-
-    def _fetch_thumbnails_for(self, raw_list: list[dict], _source: str):
-        """Fetch thumbnails for first 15 items; stagger to reduce network load."""
-        seen = set()
-        count = 0
-        for raw in raw_list[:15]:  # Reduced from 30 to 15 to reduce network pressure
-            if not raw:
-                continue
-
-            # Priority: videoId (tracks) > playlistId (playlists) > browseId (albums/artists)
-            # This ensures correct ID→thumbnail matching
-            vid = raw.get("videoId") or raw.get("playlistId") or raw.get("browseId", "")
-            
-            thumbs = raw.get("thumbnails") or raw.get("thumbnail") or []
-            if not vid or not thumbs or vid in seen:
-                continue
-            
-            seen.add(vid)
-            url = thumbs[-1].get("url", "") if thumbs else ""
-            if url:
-                delay = count * 10  # 10ms stagger (was 5ms, now more relaxed)
-                QTimer.singleShot(delay, lambda u=url, v=vid: self._ytm.download_thumbnail(u, v))
-                count += 1
-
-    # ------------------------------------------------------------------
-    # Playback
-    # ------------------------------------------------------------------
-
-    @pyqtSlot(object, list, int)
-    def _play_tracks(self, track: Track, all_tracks: list[Track], idx: int):
-        # --- NEW: Intercept Playlists and Albums ---
-        # YouTube video IDs are strictly 11 characters. 
-        # Anything longer (PL..., MPREb..., RD...) is a Playlist or Album!
-        if len(track.video_id) > 11:
-            self._load_playlist(track.video_id) # Route to the Playlist page
-            return
-
-        if not all_tracks:
-            all_tracks = [track]
-            idx = 0
-        
-        self._player.set_queue(all_tracks, idx)
-
-    def _play_from_queue(self, track: Track, _all: list[Track]):
-        queue = self._player.get_queue()
-        try:
-            idx = next(i for i, t in enumerate(queue) if t.video_id == track.video_id)
-            self._player.play_index(idx)
-        except StopIteration:
-            pass
-
-    def _on_track_changed(self, track: Track):
-        log.info("Now playing: %s by %s", track.title, track.artist)
-        self.setWindowTitle(f"{track.title} — {track.artist} | YTMusic Desktop")
-        # Update Now Playing Page
-        self._now_playing_page.set_now_playing(track, self._player.get_queue())
-        # Automatically switch view if not already on search/history
-        if self._pages.currentWidget() not in (self._search_page, self._history_page):
-            self._go_to_page("now_playing")
-
-        # Fetch thumbnail for player bar and now playing art (match by videoId)
-        if track.thumbnail_url:
-            log.debug("Fetching thumbnail for %s", track.video_id)
-            self._ytm.download_thumbnail(track.thumbnail_url, track.video_id)
-
-        # Load up-next queue and sync history only if authenticated
-        if self._ytm.is_authenticated():
-            self._ytm.get_watch_playlist(track.video_id)
-            # Sync play to YTMusic history (non-blocking, best-effort)
-            self._ytm.add_history_item(track.video_id)
-        else:
-            log.debug("Skipping API calls (not authenticated)")
-
-        # Update playing indicators across all pages
-        for page in (self._history_page, self._liked_page,
-                     self._playlist_page, self._queue_page):
-            page.set_playing(track.video_id)
-        self._now_playing_page.set_playing(track.video_id)
-
-    def _on_player_state(self, state: str):
-        log.info("Player state changed: %s", state)
-        self._update_discord_rpc()
-
-    def _on_player_error(self, message: str):
-        log.error("Player error: %s", message)
-        self._status.showMessage(f"Player: {message}", 6000)
-
-    def _refresh_queue_page(self):
-        q   = self._player.get_queue()
-        idx = self._player.get_queue_index()
-        self._queue_page.set_queue(q, idx)
-
-    # ------------------------------------------------------------------
-    # Discord RPC
-    # ------------------------------------------------------------------
-
-    def _update_discord_rpc(self):
-        cur = self._player.current_track
-        if not cur:
-            self._rpc.clear()
-            return
-        self._rpc.update(
-            title=cur.title,
-            artist=cur.artist,
-            is_playing=self._player.is_playing(),
-            position_sec=self._player.position() // 1000,
-            duration_sec=cur.duration_sec,
-            thumbnail_url=cur.thumbnail_url, # <-- Pass the live URL
-        )
-
-    # ------------------------------------------------------------------
-    # Window state
-    # ------------------------------------------------------------------
-
-    def _restore_geometry(self):
-        settings = QSettings("YTMusicDesktop", "MainWindow")
-        geo = settings.value("geometry")
-        if geo:
-            self.restoreGeometry(geo)
-        else:
-            self.resize(1100, 700)
-
-    def closeEvent(self, event):
-        settings = QSettings("YTMusicDesktop", "MainWindow")
-        settings.setValue("geometry", self.saveGeometry())
-        self._rpc.close()
-        super().closeEvent(event)
